@@ -161,7 +161,7 @@ app.post("/add-lead", async (req, res) => {
     res.status(500).send("Error adding lead");
   }
 });
-app.get("/leads", async (req, res) => {
+app.get("/leads", verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
       "SELECT * FROM leads ORDER BY id DESC"
