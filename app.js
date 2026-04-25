@@ -15,12 +15,12 @@ const pool = new Pool({
 // ================= CONFIG =================
 const JWT_SECRET = "secret123";
 
-// ================= TEST ROUTE =================
+// ================= ROOT =================
 app.get("/", (req, res) => {
   res.send("API is running 🚀");
 });
 
-// ================= CREATE TABLE (TEMP) =================
+// ================= CREATE TABLE =================
 app.get("/create-table", async (req, res) => {
   try {
     await pool.query(`
@@ -33,7 +33,8 @@ app.get("/create-table", async (req, res) => {
 
     res.send("Users table created ✅");
   } catch (err) {
-    res.send(err.message);
+    console.error(err);
+    res.status(500).send(err.message);
   }
 });
 
@@ -93,7 +94,7 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// ================= MIDDLEWARE =================
+// ================= AUTH MIDDLEWARE =================
 const verifyToken = (req, res, next) => {
   const token = req.header("Authorization");
 
@@ -108,7 +109,7 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-// ================= PROTECTED ROUTE =================
+// ================= PROTECTED =================
 app.get("/profile", verifyToken, async (req, res) => {
   const result = await pool.query(
     "SELECT id, email FROM users WHERE id = $1",
