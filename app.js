@@ -173,3 +173,16 @@ app.get("/leads", verifyToken, async (req, res) => {
     res.status(500).send("Error fetching leads");
   }
 });
+app.get("/add-userid", async (req, res) => {
+  try {
+    await pool.query(`
+      ALTER TABLE leads
+      ADD COLUMN user_id INTEGER;
+    `);
+
+    res.send("user_id added to leads ✅");
+  } catch (err) {
+    console.error(err);
+    res.send("Maybe already added or error");
+  }
+});
