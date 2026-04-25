@@ -161,3 +161,15 @@ app.post("/add-lead", async (req, res) => {
     res.status(500).send("Error adding lead");
   }
 });
+app.get("/leads", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM leads ORDER BY id DESC"
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error fetching leads");
+  }
+});
