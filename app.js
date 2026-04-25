@@ -20,7 +20,7 @@ app.get("/", (req, res) => {
   res.send("API is running 🚀");
 });
 
-// ================= CREATE TABLE =================
+// ================= CREATE USERS TABLE =================
 app.get("/create-table", async (req, res) => {
   try {
     await pool.query(`
@@ -33,7 +33,26 @@ app.get("/create-table", async (req, res) => {
 
     res.send("Users table created ✅");
   } catch (err) {
-    console.error(err);
+    res.status(500).send(err.message);
+  }
+});
+
+// ================= CREATE LEADS TABLE =================
+app.get("/create-leads-table", async (req, res) => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS leads (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        email TEXT,
+        source TEXT,
+        user_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    res.send("Leads table ready ✅");
+  } catch (err) {
     res.status(500).send(err.message);
   }
 });
@@ -94,22 +113,31 @@ app.post("/login", async (req, res) => {
   }
 });
 
-// ================= AUTH MIDDLEWARE =================
+// ================= FIXED AUTH =================
 const verifyToken = (req, res, next) => {
-  const token = req.header("Authorization");
+  const authHeader = req.header("Authorization");
 
-  if (!token) return res.status(401).json({ message: "No token" });
+  if (!authHeader) {
+    return res.status(401).json({ message: "No token" });
+  }
+
+  // 🔥 FIX: remove "Bearer "
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ message: "Invalid format" });
+  }
 
   try {
     const verified = jwt.verify(token, JWT_SECRET);
     req.user = verified;
     next();
-  } catch {
-    res.status(400).json({ message: "Invalid token" });
+  } catch (err) {
+    return res.status(400).json({ message: "Invalid token" });
   }
 };
 
-// ================= PROTECTED =================
+// ================= PROFILE =================
 app.get("/profile", verifyToken, async (req, res) => {
   const result = await pool.query(
     "SELECT id, email FROM users WHERE id = $1",
@@ -119,30 +147,7 @@ app.get("/profile", verifyToken, async (req, res) => {
   res.json(result.rows[0]);
 });
 
-// ================= SERVER =================
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-app.get("/create-leads-table", async (req, res) => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS leads (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        email TEXT,
-        source TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    res.send("Leads table created ✅");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Error creating leads table");
-  }
-});
+// ================= ADD LEAD =================
 app.post("/add-lead", verifyToken, async (req, res) => {
   try {
     const { name, email, source } = req.body;
@@ -156,33 +161,29 @@ app.post("/add-lead", verifyToken, async (req, res) => {
       message: "Lead added successfully",
       lead: result.rows[0],
     });
+
   } catch (err) {
-    console.error(err);
     res.status(500).send("Error adding lead");
   }
 });
+
+// ================= GET LEADS =================
 app.get("/leads", verifyToken, async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM leads ORDER BY id DESC"
+      "SELECT * FROM leads WHERE user_id = $1 ORDER BY id DESC",
+      [req.user.id]
     );
 
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
     res.status(500).send("Error fetching leads");
   }
 });
-app.get("/add-userid", async (req, res) => {
-  try {
-    await pool.query(`
-      ALTER TABLE leads
-      ADD COLUMN user_id INTEGER;
-    `);
 
-    res.send("user_id added to leads ✅");
-  } catch (err) {
-    console.error(err);
-    res.send("Maybe already added or error");
-  }
+// ================= SERVER =================
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
