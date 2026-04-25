@@ -1,116 +1,126 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-require("dotenv").config();
+const { Pool } = require("pg");
 
 const app = express();
 app.use(express.json());
 
-// TEMP storage (replace with DB later)
-const users = [];
+// ================= DATABASE =================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 
-// ================= ROOT ROUTE =================
+// ================= CONFIG =================
+const JWT_SECRET = "secret123";
+
+// ================= TEST ROUTE =================
 app.get("/", (req, res) => {
-    res.send("API is running 🚀");
+  res.send("API is running 🚀");
+});
+
+// ================= CREATE TABLE (TEMP) =================
+app.get("/create-table", async (req, res) => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL
+      );
+    `);
+
+    res.send("Users table created ✅");
+  } catch (err) {
+    res.send(err.message);
+  }
 });
 
 // ================= REGISTER =================
 app.post("/register", async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        // Check if user exists
-        const userExists = users.find(user => user.email === email);
-        if (userExists) {
-            return res.status(400).json({ message: "User already exists" });
-        }
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      "INSERT INTO users (email, password) VALUES ($1, $2) RETURNING *",
+      [email, hashedPassword]
+    );
 
-        // Save user
-        const user = {
-            id: users.length + 1,
-            email,
-            password: hashedPassword
-        };
+    res.json({
+      message: "User registered",
+      user: result.rows[0],
+    });
 
-        users.push(user);
-
-        res.status(201).json({ message: "User registered successfully" });
-
-    } catch (error) {
-        res.status(500).json({ message: "Server error" });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(400).json({ message: "User already exists" });
     }
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
-    try {
-        const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-        const user = users.find(user => user.email === email);
-        if (!user) {
-            return res.status(400).json({ message: "Invalid credentials" });
-        }
+    const result = await pool.query(
+      "SELECT * FROM users WHERE email = $1",
+      [email]
+    );
 
-        // Compare password
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) {
-            return res.status(400).json({ message: "Invalid credentials" });
-        }
-
-        // Create JWT
-        const token = jwt.sign(
-            { id: user.id, email: user.email },
-            process.env.JWT_SECRET || "secret123",
-            { expiresIn: "1h" }
-        );
-
-        res.json({
-            message: "Login successful",
-            token
-        });
-
-    } catch (error) {
-        res.status(500).json({ message: "Server error" });
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: "User not found" });
     }
+
+    const user = result.rows[0];
+
+    const validPassword = await bcrypt.compare(password, user.password);
+
+    if (!validPassword) {
+      return res.status(400).json({ message: "Invalid password" });
+    }
+
+    const token = jwt.sign({ id: user.id }, JWT_SECRET);
+
+    res.json({ token });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ================= MIDDLEWARE =================
-function verifyToken(req, res, next) {
-    const authHeader = req.headers["authorization"];
+const verifyToken = (req, res, next) => {
+  const token = req.header("Authorization");
 
-    if (!authHeader) {
-        return res.status(403).json({ message: "Token required" });
-    }
+  if (!token) return res.status(401).json({ message: "No token" });
 
-    const token = authHeader.split(" ")[1];
-
-    if (!token) {
-        return res.status(403).json({ message: "Invalid token format" });
-    }
-
-    try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret123");
-        req.user = decoded;
-        next();
-    } catch (error) {
-        return res.status(401).json({ message: "Invalid or expired token" });
-    }
-}
+  try {
+    const verified = jwt.verify(token, JWT_SECRET);
+    req.user = verified;
+    next();
+  } catch {
+    res.status(400).json({ message: "Invalid token" });
+  }
+};
 
 // ================= PROTECTED ROUTE =================
-app.get("/profile", verifyToken, (req, res) => {
-    res.json({
-        message: "Protected data accessed",
-        user: req.user
-    });
+app.get("/profile", verifyToken, async (req, res) => {
+  const result = await pool.query(
+    "SELECT id, email FROM users WHERE id = $1",
+    [req.user.id]
+  );
+
+  res.json(result.rows[0]);
 });
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
