@@ -143,3 +143,21 @@ app.get("/create-leads-table", async (req, res) => {
     res.status(500).send("Error creating leads table");
   }
 });
+app.post("/add-lead", async (req, res) => {
+  try {
+    const { name, email, source } = req.body;
+
+    const result = await pool.query(
+      "INSERT INTO leads (name, email, source) VALUES ($1, $2, $3) RETURNING *",
+      [name, email, source]
+    );
+
+    res.json({
+      message: "Lead added successfully",
+      lead: result.rows[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error adding lead");
+  }
+});
